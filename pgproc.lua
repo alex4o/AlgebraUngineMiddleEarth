@@ -44,6 +44,7 @@ typedef void (*PQnoticeReceiver) (void *arg, const PGresult *res);
 typedef void (*PQnoticeProcessor) (void *arg, const char *message);
 
 extern PGconn *PQconnectdb(const char *conninfo);
+extern char *PQerrorMessage(const PGconn *conn);
 extern void PQfinish(PGconn *conn);
 extern void PQclear(PGresult *res);
 extern void PQfreemem(void *ptr);
@@ -57,8 +58,9 @@ extern int PQnfields(const PGresult *res);
 extern char *PQfname(const PGresult *res, int field_num);
 extern size_t PQescapeStringConn(PGconn *conn,char *to, const char *from, size_t length, int *error);
 extern ConnStatusType PQstatus(const PGconn *conn);
-
+extern char *PQcmdTuples(const PGresult *res);
 ]])
+
 
 local sql = ffi.load('libpq')
 pg.ffi = ffi
@@ -69,6 +71,8 @@ function pg.connect(connstr)
 	pg.connstr = connstr or os.getenv('DB_CONNECT_STRING') 
 	pg.connection = sql.PQconnectdb(pg.connstr)
 	if not sql.PQstatus(pg.connection) == sql.CONNECTION_OK then
+		print(" ### error ### ")
+		print(ffi.string(sql.PQerrorMessage(pg.connection)))	
 		pg.connection = nil
 		return nil
 	end
@@ -88,6 +92,7 @@ function pg.query(Q)
 	if pg.result then pg.reset() end
 	pg.result = sql.PQexec(pg.connection,Q)
 	pg.status = sql.PQresultStatus(pg.result)
+	pg.affectedRows()
 	if pg.status == sql.PGRES_EMPTY_QUERY or pg.status == sql.PGRES_COMMAND_OK then
 		pg.reset()
 		return 0
@@ -133,6 +138,12 @@ function pg.quote(S)
 	return ffi.string(buffer,len)
 end
 
+function pg.affectedRows()
+	pg.ar = ffi.string(sql.PQcmdTuples(pg.result))
+	print("Affected rows: " .. pg.ar)
+
+end
+
 function pg.bind(schema)
 	local query = "select proc.proname::text from pg_proc proc join pg_namespace namesp on proc.pronamespace = namesp.oid where namesp.nspname = '" .. schema .. "'"
 	_G[schema] = {}
@@ -145,19 +156,27 @@ function pg.bind(schema)
 	while i < rows do
 		local proc = pg.fetch(i,0);
 		local F = function() 
-			local query = "select * from  " .. schema .. "." .. proc .. "('"
+			local query = "select * from  " .. schema .. "." .. proc
 			return function(...)	
-				local Q  = query .. table.concat({...},"','") .."')"
+				local Q = ""
+				if select("#",...) > 0 then
+					Q  =  query .. "('" .. table.concat({...},"','") .."')"
+				else
+					Q  = query .. "()"
+				end
 				local rows = pg.query(Q)
 				local R = {}
 				local k,j = 0,0
 				while k < rows do
+					table.insert(R , {})
+					
 					while j < pg.fields() do
 						local key = pg.field(j)
 						local value = pg.fetch(k,j)
-						R[key] = value
+						R[k+1][key] = value
 						j = j+1
 					end
+					j = 0
 					k = k+1
 				end
 				return R

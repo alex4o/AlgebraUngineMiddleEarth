@@ -2,7 +2,8 @@ uwsgi:
         lua: main.lua
         socket: /var/opt/uwsgi.sock
         master: true
-        processes: 2
+        processes: 2      
+        threads: 8
         enable-threads: true
         daemonize: /var/log/uwsgi/uwsgi.log
         pidfile: /var/run/uwsgi.pid
